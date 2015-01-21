@@ -1,0 +1,7 @@
+bucket_name = 'my-bucket'
+default_cluster_name = 'my-cluster'
+ec2_keyname = 'my-key'
+log_uri = 's3://my-bucket/log/'
+ami_version = '3.3.1'
+install_pig_script = 's3://my-bucket/install-pig.sh'
+pig_version = '0.13.0'
