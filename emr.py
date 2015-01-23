@@ -107,7 +107,7 @@ def find_cluster():
         visible_to_all_users=True,
         ec2_keyname=ec2_keyname,
         log_uri=log_uri,
-        action_on_failure='TERMINATE',
+        action_on_failure='CONTINUE',
         instance_groups=instance_groups,
         bootstrap_actions=bootstrap_actions)
     return jobid
