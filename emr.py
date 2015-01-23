@@ -33,10 +33,11 @@ def parse_args():
         usage='''emr <command> [ərgs]
 
 The available commands are:
-   add     Add a step
-   run     Run step
-   ssh     SSH to master
-   tail    Tail file from running step on master (default stderr)''')
+   add        Add a step
+   run        Run step
+   ssh        SSH to master
+   tail       Tail file from running step on master (default stderr)
+   terminate  Terminate the running cluster''')
     subparsers = parser.add_subparsers()
     parser_add = subparsers.add_parser('add',
         description='Add a step')
@@ -58,6 +59,9 @@ The available commands are:
         description='Tail file from running step on master (default stderr)')
     parser_tail.add_argument('filename', nargs='?', default='stderr')
     parser_tail.set_defaults(func=cmd_tail)
+    parser_terminate = subparsers.add_parser('terminate',
+        description='Terminate clusters')
+    parser_terminate.set_defaults(func=cmd_terminate)
     return parser.parse_args()
 
 # upload script to s3
@@ -107,6 +111,10 @@ def cmd_tail(args):
     host = emr_conn.describe_jobflow(jobid).masterpublicdnsname
     ssh(host, 'tail', '-f', '/mnt/var/log/hadoop/steps/%s/%s' % (step_id, args.filename))
 
+def cmd_terminate(args):
+    jobid = find_cluster()
+    emr_conn.terminate_jobflow(jobid)
+
 def upload_script(path):
     '''upload script to s3'''
     k = Key(s3_conn.get_bucket(bucket_name))
@@ -116,7 +124,7 @@ def upload_script(path):
     return script_uri
 
 def find_cluster(vacant=False):
-    '''find previous cluster or launch new if not found'''
+    '''find previous cluster'''
     states = ['STARTING', 'BOOTSTRAPPING', 'WAITING']
     if not vacant:
         # launch sequentially
