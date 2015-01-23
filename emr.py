@@ -87,7 +87,8 @@ def upload_script(path):
 def find_cluster():
     # use jarno-interactive cluster, if exists
     jobids = [c.id for c in emr_conn.list_clusters(
-                  cluster_states=['STARTING', 'BOOTSTRAPPING', 'WAITING', 'RUNNING']).clusters
+                  cluster_states=['STARTING', 'BOOTSTRAPPING',
+                                  'WAITING', 'RUNNING']).clusters
               if c.name == default_cluster_name]
     if jobids:
         return jobids[0]
@@ -113,7 +114,8 @@ def find_cluster():
 
 def add_step(jobid, script_name, script_uri):
     steps = [
-        ScriptRunnerStep(script_name, step_args=['/home/hadoop/pig/bin/pig', '-f', script_uri, '-l', '.'])
+        ScriptRunnerStep(script_name, step_args=
+            ['/home/hadoop/pig/bin/pig', '-f', script_uri, '-l', '.'])
     ]
     emr_conn.add_jobflow_steps(jobid, steps)
 
