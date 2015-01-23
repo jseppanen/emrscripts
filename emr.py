@@ -21,6 +21,8 @@ import subprocess
 # - get results of script
 # emr ssh
 # - ssh to master
+# emr terminate
+# - terminate clusters
 # emr kill <pig-script>
 # - kill step
 
@@ -30,11 +32,15 @@ def parse_args():
     parser_add = subparsers.add_parser('add',
         description='Add a step')
     parser_add.add_argument('script')
+    parser_add.add_argument('-p', dest='parallel', action='store_true',
+        help='launch in parallel with currently running steps')
     parser_add.set_defaults(func=cmd_add)
     parser_run = subparsers.add_parser('run',
         description='Run script')
     parser_run.add_argument('script')
-    parser_run.add_argument('path', default=None)
+    parser_run.add_argument('path', nargs='?')
+    parser_run.add_argument('-p', dest='parallel', action='store_true',
+        help='launch in parallel with currently running steps')
     parser_run.set_defaults(func=cmd_run)
     parser_ssh = subparsers.add_parser('ssh',
         description='SSH to master')
@@ -62,12 +68,18 @@ def main():
 
 def cmd_add(args):
     script_uri = upload_script(args.script)
-    jobid = find_cluster()
+    try:
+        jobid = find_cluster(vacant=args.parallel)
+    except NotFoundError:
+        jobid = launch_cluster(args.script)
     add_step(jobid, args.script, script_uri)
 
 def cmd_run(args):
     script_uri = upload_script(args.script)
-    jobid = find_cluster()
+    try:
+        jobid = find_cluster(vacant=args.parallel)
+    except NotFoundError:
+        jobid = launch_cluster(args.script)
     add_step(jobid, args.script, script_uri)
     wait(jobid)
 
@@ -84,15 +96,21 @@ def upload_script(path):
     script_uri = 's3://%s/emrunner/%s' % (bucket_name, path)
     return script_uri
 
-def find_cluster():
-    # use jarno-interactive cluster, if exists
+def find_cluster(vacant=False):
+    '''find previous cluster or launch new if not found'''
+    states = ['STARTING', 'BOOTSTRAPPING', 'WAITING']
+    if not vacant:
+        # launch sequentially
+        states += ['RUNNING']
     jobids = [c.id for c in emr_conn.list_clusters(
-                  cluster_states=['STARTING', 'BOOTSTRAPPING',
-                                  'WAITING', 'RUNNING']).clusters
+                  cluster_states=states).clusters
               if c.name == default_cluster_name]
     if jobids:
         return jobids[0]
-    # launch new cluster
+    raise NotFoundError(default_cluster_name)
+
+def launch_cluster(script_name):
+    '''launch new cluster'''
     instance_groups = [
         InstanceGroup(1, 'MASTER', 'm2.4xlarge', 'ON_DEMAND', 'MASTER_GROUP'),
         InstanceGroup(3, 'CORE', 'm2.4xlarge', 'ON_DEMAND', 'CORE_GROUP'),
@@ -138,6 +156,9 @@ def ssh(host):
              '-i', pem_path,
              '-o', 'StrictHostKeyChecking=no',
              'hadoop@'+host)
+
+class NotFoundError(BaseException):
+    pass
 
 if __name__ == '__main__':
     main()
