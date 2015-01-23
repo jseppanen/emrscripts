@@ -10,8 +10,32 @@ from boto.emr.step import ScriptRunnerStep
 import time
 import os
 import sys
+import argparse
 
-# usage: emr.py -i <pig-script>
+# emr run <pig-script> [path]
+# - run with monitoring, sync results
+# emr add <pig-script>
+# - add step without monitoring
+# emr sync <pig-script> [path]
+# - get results of script
+# emr ssh
+# - ssh to master
+# emr kill <pig-script>
+# - kill step
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers()
+    parser_add = subparsers.add_parser('add',
+        description='Add a step')
+    parser_add.add_argument('script')
+    parser_add.set_defaults(func=cmd_add)
+    parser_run = subparsers.add_parser('run',
+        description='Run script')
+    parser_run.add_argument('script')
+    parser_run.add_argument('path', default=None)
+    parser_run.set_defaults(func=cmd_run)
+    return parser.parse_args()
 
 # upload script to s3
 # clean existing results from s3, if any
@@ -21,43 +45,51 @@ import sys
 # set up ssh tunnel to job tracker
 # sync results back, concatenate to single file
 
-confpath = os.path.join(os.path.dirname(__file__), 'emr.conf.py')
-conf = exec(open(confpath).read())
+def main():
+    global s3_conn, emr_conn
+    confpath = os.path.join(os.path.dirname(__file__), 'emr.conf.py')
+    conf = exec(open(confpath).read(), globals())
+    args = parse_args()
+    s3_conn = boto.connect_s3()
+    emr_conn = boto.emr.connect_to_region('us-east-1')
+    args.func(args)
+    s3_conn.close()
+    emr_conn.close()
 
-try:
-    script_name = sys.argv[1]
-except:
-    sys.stderr.write('Usage: emr.py <pig-script>\n')
-    sys.exit(1)
+def cmd_add(args):
+    script_uri = upload_script(args.script)
+    jobid = find_cluster()
+    add_step(jobid, args.script, script_uri)
 
-# upload script to s3
-s3_conn = boto.connect_s3()
-k = Key(s3_conn.get_bucket(bucket_name))
-k.key = 'emrunner/' + script_name
-k.set_contents_from_file(open(script_name))
-script_uri = 's3://%s/emrunner/%s' % (bucket_name, script_name)
-s3_conn.close()
+def cmd_run(args):
+    script_uri = upload_script(args.script)
+    jobid = find_cluster()
+    add_step(jobid, args.script, script_uri)
+    wait(jobid)
 
-emr_conn = boto.emr.connect_to_region('us-east-1')
+def upload_script(path):
+    '''upload script to s3'''
+    k = Key(s3_conn.get_bucket(bucket_name))
+    k.key = 'emrunner/' + path
+    k.set_contents_from_file(open(path))
+    script_uri = 's3://%s/emrunner/%s' % (bucket_name, path)
+    return script_uri
 
-instance_groups = [
-    InstanceGroup(1, 'MASTER', 'm2.4xlarge', 'ON_DEMAND', 'MASTER_GROUP'),
-    InstanceGroup(3, 'CORE', 'm2.4xlarge', 'ON_DEMAND', 'CORE_GROUP'),
-]
-
-bootstrap_actions = [
-    BootstrapAction('install-pig', install_pig_script, [pig_version]),
-]
-
-steps = [
-    ScriptRunnerStep(script_name, step_args=['/home/hadoop/pig/bin/pig', '-f', script_uri, '-l', '.'])
-]
-
-# use jarno-interactive cluster, if exists
-jobids = [c.id for c in emr_conn.list_clusters(cluster_states=['WAITING']).clusters
-          if c.name == default_cluster_name]
-
-if not jobids:
+def find_cluster():
+    # use jarno-interactive cluster, if exists
+    jobids = [c.id for c in emr_conn.list_clusters(
+                  cluster_states=['STARTING', 'BOOTSTRAPPING', 'WAITING', 'RUNNING']).clusters
+              if c.name == default_cluster_name]
+    if jobids:
+        return jobids[0]
+    # launch new cluster
+    instance_groups = [
+        InstanceGroup(1, 'MASTER', 'm2.4xlarge', 'ON_DEMAND', 'MASTER_GROUP'),
+        InstanceGroup(3, 'CORE', 'm2.4xlarge', 'ON_DEMAND', 'CORE_GROUP'),
+    ]
+    bootstrap_actions = [
+        BootstrapAction('install-pig', install_pig_script, [pig_version]),
+    ]
     jobid = emr_conn.run_jobflow(
         name=os.environ['USER'] + '-' + script_name,
         keep_alive=False,
@@ -68,19 +100,27 @@ if not jobids:
         action_on_failure='TERMINATE',
         instance_groups=instance_groups,
         bootstrap_actions=bootstrap_actions)
-else:
-    jobid = jobids[0]
-print(jobid)
+    return jobid
 
-emr_conn.add_jobflow_steps(jobid, steps)
+def add_step(jobid, script_name, script_uri):
+    steps = [
+        ScriptRunnerStep(script_name, step_args=['/home/hadoop/pig/bin/pig', '-f', script_uri, '-l', '.'])
+    ]
+    emr_conn.add_jobflow_steps(jobid, steps)
 
-status = 'asdf'
-while status != 'TERMINATED' and status != 'WAITING':
-    status = emr_conn.describe_jobflow(jobid).state
-    sys.stdout.write('\r%s          ' % status)
-    sys.stdout.flush()
-    time.sleep(5)
+def wait(jobid):
+    status = 'asdf'
+    while status != 'TERMINATED' and status != 'WAITING':
+        status = emr_conn.describe_jobflow(jobid).state
+        sys.stdout.write('\r%s          ' % status)
+        sys.stdout.flush()
+        time.sleep(5)
 
-sys.stdout.write('\n')
+    # ssh -i ~/.ssh/my.pem -D 8157 hadoop@ec2-1-2-3-4.compute-1.amazonaws.com
+    # -o "StrictHostKeyChecking no"
+    # tail -f /mnt/var/log/hadoop/steps/s-1111111111111/stderr
 
-emr_conn.close()
+    sys.stdout.write('\n')
+
+if __name__ == '__main__':
+    main()
