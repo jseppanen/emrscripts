@@ -21,13 +21,22 @@ import subprocess
 # - get results of script
 # emr ssh
 # - ssh to master
+# emr tail
+# - tail file from running step on master (default stderr)
 # emr terminate
 # - terminate clusters
 # emr kill <pig-script>
 # - kill step
 
 def parse_args():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        usage='''emr <command> [ərgs]
+
+The available commands are:
+   add     Add a step
+   run     Run step
+   ssh     SSH to master
+   tail    Tail file from running step on master (default stderr)''')
     subparsers = parser.add_subparsers()
     parser_add = subparsers.add_parser('add',
         description='Add a step')
@@ -45,6 +54,10 @@ def parse_args():
     parser_ssh = subparsers.add_parser('ssh',
         description='SSH to master')
     parser_ssh.set_defaults(func=cmd_ssh)
+    parser_tail = subparsers.add_parser('tail',
+        description='Tail file from running step on master (default stderr)')
+    parser_tail.add_argument('filename', nargs='?', default='stderr')
+    parser_tail.set_defaults(func=cmd_tail)
     return parser.parse_args()
 
 # upload script to s3
@@ -88,6 +101,12 @@ def cmd_ssh(args):
     host = emr_conn.describe_jobflow(jobid).masterpublicdnsname
     ssh(host)
 
+def cmd_tail(args):
+    jobid = find_cluster()
+    step_id = find_step(jobid)
+    host = emr_conn.describe_jobflow(jobid).masterpublicdnsname
+    ssh(host, 'tail', '-f', '/mnt/var/log/hadoop/steps/%s/%s' % (step_id, args.filename))
+
 def upload_script(path):
     '''upload script to s3'''
     k = Key(s3_conn.get_bucket(bucket_name))
@@ -108,6 +127,15 @@ def find_cluster(vacant=False):
     if jobids:
         return jobids[0]
     raise NotFoundError(default_cluster_name)
+
+def find_step(jobid):
+    '''find running step'''
+    steps = [s.id for s in emr_conn.list_steps(jobid).steps
+             if s.status.state == 'RUNNING']
+    if not steps:
+        raise NotFoundError('RUNNING')
+    assert len(steps) == 1
+    return steps[0]
 
 def launch_cluster(script_name):
     '''launch new cluster'''
@@ -151,11 +179,12 @@ def wait(jobid):
 
     sys.stdout.write('\n')
 
-def ssh(host):
+def ssh(host, *args):
     os.execl('/usr/bin/ssh', 'ssh',
              '-i', pem_path,
              '-o', 'StrictHostKeyChecking=no',
-             'hadoop@'+host)
+             'hadoop@'+host,
+             *args)
 
 class NotFoundError(BaseException):
     pass
