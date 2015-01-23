@@ -11,6 +11,7 @@ import time
 import os
 import sys
 import argparse
+import subprocess
 
 # emr run <pig-script> [path]
 # - run with monitoring, sync results
@@ -35,6 +36,9 @@ def parse_args():
     parser_run.add_argument('script')
     parser_run.add_argument('path', default=None)
     parser_run.set_defaults(func=cmd_run)
+    parser_ssh = subparsers.add_parser('ssh',
+        description='SSH to master')
+    parser_ssh.set_defaults(func=cmd_ssh)
     return parser.parse_args()
 
 # upload script to s3
@@ -66,6 +70,11 @@ def cmd_run(args):
     jobid = find_cluster()
     add_step(jobid, args.script, script_uri)
     wait(jobid)
+
+def cmd_ssh(args):
+    jobid = find_cluster()
+    host = emr_conn.describe_jobflow(jobid).masterpublicdnsname
+    ssh(host)
 
 def upload_script(path):
     '''upload script to s3'''
@@ -121,6 +130,12 @@ def wait(jobid):
     # tail -f /mnt/var/log/hadoop/steps/s-1111111111111/stderr
 
     sys.stdout.write('\n')
+
+def ssh(host):
+    os.execl('/usr/bin/ssh', 'ssh',
+             '-i', pem_path,
+             '-o', 'StrictHostKeyChecking=no',
+             'hadoop@'+host)
 
 if __name__ == '__main__':
     main()
