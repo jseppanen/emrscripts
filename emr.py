@@ -38,30 +38,26 @@ The available commands are:
    ssh        SSH to master
    tail       Tail file from running step on master (default stderr)
    terminate  Terminate the running cluster''')
-    subparsers = parser.add_subparsers()
+    subparsers = parser.add_subparsers(dest='command')
+    subparsers.required = True
     parser_add = subparsers.add_parser('add',
         description='Add a step')
     parser_add.add_argument('script')
     parser_add.add_argument('-p', dest='parallel', action='store_true',
         help='launch in parallel with currently running steps')
-    parser_add.set_defaults(func=cmd_add)
     parser_run = subparsers.add_parser('run',
         description='Run script')
     parser_run.add_argument('script')
     parser_run.add_argument('path', nargs='?')
     parser_run.add_argument('-p', dest='parallel', action='store_true',
         help='launch in parallel with currently running steps')
-    parser_run.set_defaults(func=cmd_run)
     parser_ssh = subparsers.add_parser('ssh',
         description='SSH to master')
-    parser_ssh.set_defaults(func=cmd_ssh)
     parser_tail = subparsers.add_parser('tail',
         description='Tail file from running step on master (default stderr)')
     parser_tail.add_argument('filename', nargs='?', default='stderr')
-    parser_tail.set_defaults(func=cmd_tail)
     parser_terminate = subparsers.add_parser('terminate',
         description='Terminate clusters')
-    parser_terminate.set_defaults(func=cmd_terminate)
     return parser.parse_args()
 
 # upload script to s3
@@ -79,7 +75,8 @@ def main():
     args = parse_args()
     s3_conn = boto.connect_s3()
     emr_conn = boto.emr.connect_to_region('us-east-1')
-    args.func(args)
+    fun = globals()['cmd_' + args.command]
+    fun(args)
     s3_conn.close()
     emr_conn.close()
 
