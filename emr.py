@@ -35,7 +35,7 @@ def parse_args():
 The available commands are:
    add        Add a step
    run        Run step
-   ssh        SSH to master
+   ssh        SSH to master (launch interactive if not running)
    tail       Tail file from running step on master (default stderr)
    terminate  Terminate the running cluster''')
     subparsers = parser.add_subparsers(dest='command')
@@ -98,7 +98,11 @@ def cmd_run(args):
     wait(jobid)
 
 def cmd_ssh(args):
-    jobid = find_cluster()
+    try:
+        jobid = find_cluster()
+    except NotFoundError:
+        jobid = launch_cluster('interactive')
+        wait(jobid)
     host = emr_conn.describe_jobflow(jobid).masterpublicdnsname
     ssh(host)
 
@@ -151,8 +155,9 @@ def launch_cluster(script_name):
     bootstrap_actions = [
         BootstrapAction('install-pig', install_pig_script, [pig_version]),
     ]
+    name=os.environ['USER'] + '-' + script_name
     jobid = emr_conn.run_jobflow(
-        name=os.environ['USER'] + '-' + script_name,
+        name=name,
         keep_alive=False,
         ami_version=ami_version,
         visible_to_all_users=True,
@@ -161,6 +166,7 @@ def launch_cluster(script_name):
         action_on_failure='CONTINUE',
         instance_groups=instance_groups,
         bootstrap_actions=bootstrap_actions)
+    print('launched %s (%s)' % (name, jobid))
     return jobid
 
 def add_step(jobid, script_name, script_uri):
