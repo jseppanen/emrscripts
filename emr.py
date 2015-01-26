@@ -17,6 +17,8 @@ import subprocess
 # - run with monitoring, sync results
 # emr add <pig-script>
 # - add step without monitoring
+# emr proxy
+# - Run SOCKS proxy connected to master
 # emr sync <pig-script> [path]
 # - get results of script
 # emr ssh
@@ -34,6 +36,7 @@ def parse_args():
 
 The available commands are:
    add        Add a step
+   proxy      Launch SOCKS proxy connected to master
    run        Run step
    ssh        SSH to master (launch interactive if not running)
    tail       Tail file from running step on master (default stderr)
@@ -45,6 +48,8 @@ The available commands are:
     parser_add.add_argument('script')
     parser_add.add_argument('-p', dest='parallel', action='store_true',
         help='launch in parallel with currently running steps')
+    parser_proxy = subparsers.add_parser('proxy',
+        description='Launch SOCKS proxy connected to master')
     parser_run = subparsers.add_parser('run',
         description='Run script')
     parser_run.add_argument('script')
@@ -87,6 +92,11 @@ def cmd_add(args):
     except NotFoundError:
         jobid = launch_cluster(args.script)
     add_step(jobid, args.script, script_uri)
+
+def cmd_proxy(args):
+    jobid = find_cluster()
+    host = emr_conn.describe_jobflow(jobid).masterpublicdnsname
+    ssh(host, opts=['-ND', '8157'])
 
 def cmd_run(args):
     script_uri = upload_script(args.script)
@@ -183,19 +193,15 @@ def wait(jobid):
         sys.stdout.write('\r%s          ' % status)
         sys.stdout.flush()
         time.sleep(5)
-
-    # ssh -i ~/.ssh/my.pem -D 8157 hadoop@ec2-1-2-3-4.compute-1.amazonaws.com
-    # -o "StrictHostKeyChecking no"
-    # tail -f /mnt/var/log/hadoop/steps/s-1111111111111/stderr
-
     sys.stdout.write('\n')
 
-def ssh(host, *args):
-    os.execl('/usr/bin/ssh', 'ssh',
+def ssh(host, *args, **kwargs):
+    opts = kwargs.pop('opts', [])
+    args = ['ssh',
              '-i', pem_path,
-             '-o', 'StrictHostKeyChecking=no',
-             'hadoop@'+host,
-             *args)
+             '-o', 'StrictHostKeyChecking=no'] + \
+        opts + ['hadoop@'+host] + list(args)
+    os.execv('/usr/bin/ssh', args)
 
 class NotFoundError(BaseException):
     pass
