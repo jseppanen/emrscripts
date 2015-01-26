@@ -101,7 +101,7 @@ def cmd_ssh(args):
     try:
         jobid = find_cluster()
     except NotFoundError:
-        jobid = launch_cluster('interactive')
+        jobid = launch_cluster('interactive', keep_alive=True)
         wait(jobid)
     host = emr_conn.describe_jobflow(jobid).masterpublicdnsname
     ssh(host)
@@ -146,7 +146,7 @@ def find_step(jobid):
     assert len(steps) == 1
     return steps[0]
 
-def launch_cluster(script_name):
+def launch_cluster(script_name, keep_alive=False):
     '''launch new cluster'''
     instance_groups = [
         InstanceGroup(1, 'MASTER', 'm2.4xlarge', 'ON_DEMAND', 'MASTER_GROUP'),
@@ -158,7 +158,7 @@ def launch_cluster(script_name):
     name=os.environ['USER'] + '-' + script_name
     jobid = emr_conn.run_jobflow(
         name=name,
-        keep_alive=False,
+        keep_alive=keep_alive,
         ami_version=ami_version,
         visible_to_all_users=True,
         ec2_keyname=ec2_keyname,
