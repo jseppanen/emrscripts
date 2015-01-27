@@ -243,7 +243,7 @@ def ssh(host, *args, **kwargs):
     os.execv('/usr/bin/ssh', args)
 
 def gen_bucket_path(script_name):
-    ts = dt.datetime.utcnow().isoformat() + 'Z'
+    ts = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S.%fZ')
     match = re.match('^s3n?://(\w+)(/[\w/]*\w)?', work_uri)
     if not match:
         raise ValueError('invalid work_uri: %s' % work_uri)
