@@ -181,8 +181,9 @@ def launch_cluster(script_name, keep_alive=False):
 
 def add_step(jobid, script_name, script_uri):
     steps = [
-        ScriptRunnerStep(script_name, step_args=
-            ['/home/hadoop/pig/bin/pig', '-f', script_uri, '-l', '.'])
+        ScriptRunnerStep(script_name,
+            step_args=['/home/hadoop/pig/bin/pig', '-f', script_uri, '-l', '.'],
+            action_on_failure='CONTINUE')
     ]
     emr_conn.add_jobflow_steps(jobid, steps)
 
