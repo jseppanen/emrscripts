@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import boto
-import boto
 import boto.emr
 from boto.s3.key import Key
 from boto.emr.bootstrap_action import BootstrapAction
@@ -12,6 +11,9 @@ import os
 import sys
 import argparse
 import subprocess
+import re
+import datetime as dt
+from itertools import groupby
 
 # emr run <pig-script> [path]
 # - run with monitoring, sync results
@@ -29,6 +31,9 @@ import subprocess
 # - terminate clusters
 # emr kill <pig-script>
 # - kill step
+
+# s3://bucket/emrpy/foobar.pig/2014-01-01T04:04:04.1234Z/foobar.pig
+# s3://bucket/emrpy/foobar.pig/2014-01-01T04:04:04.1234Z/results/...
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -58,6 +63,9 @@ The available commands are:
         help='launch in parallel with currently running steps')
     parser_ssh = subparsers.add_parser('ssh',
         description='SSH to master')
+    parser_sync = subparsers.add_parser('sync',
+        description='Sync script results')
+    parser_sync.add_argument('script')
     parser_tail = subparsers.add_parser('tail',
         description='Tail file from running step on master (default stderr)')
     parser_tail.add_argument('filename', nargs='?', default='stderr')
@@ -76,7 +84,8 @@ The available commands are:
 def main():
     global s3_conn, emr_conn
     confpath = os.path.join(os.path.dirname(__file__), 'emr.conf.py')
-    conf = exec(open(confpath).read(), globals())
+    # FIXME mess with globals
+    exec(open(confpath).read(), globals())
     args = parse_args()
     s3_conn = boto.connect_s3()
     emr_conn = boto.emr.connect_to_region('us-east-1')
@@ -86,11 +95,12 @@ def main():
     emr_conn.close()
 
 def cmd_add(args):
-    script_uri = upload_script(args.script)
+    script_name = os.path.basename(args.script)
+    script_uri = upload_script(script_name, args.script)
     try:
         jobid = find_cluster(vacant=args.parallel)
     except NotFoundError:
-        jobid = launch_cluster(args.script)
+        jobid = launch_cluster(args.script, keep_alive=True)
     add_step(jobid, args.script, script_uri)
 
 def cmd_proxy(args):
@@ -99,13 +109,16 @@ def cmd_proxy(args):
     ssh(host, opts=['-ND', '8157'])
 
 def cmd_run(args):
-    script_uri = upload_script(args.script)
+    script_name = os.path.basename(args.script)
+    script_uri = upload_script(script_name, args.script)
     try:
         jobid = find_cluster(vacant=args.parallel)
     except NotFoundError:
         jobid = launch_cluster(args.script)
     add_step(jobid, args.script, script_uri)
     wait(jobid)
+    # sync results back
+    cmd_sync(args)
 
 def cmd_ssh(args):
     try:
@@ -115,6 +128,16 @@ def cmd_ssh(args):
         wait(jobid)
     host = emr_conn.describe_jobflow(jobid).masterpublicdnsname
     ssh(host)
+
+def cmd_sync(args):
+    # FIXME when many clusters running, only tries arbitrary (newest?)
+    script_name = os.path.basename(args.script)
+    keys = list_results(script_name)
+    for name in keys:
+        with open(name + '.tsv', 'wb') as fd:
+            for k in keys[name]:
+                k.get_contents_to_file(fd)
+        print(name + '.tsv')
 
 def cmd_tail(args):
     jobid = find_cluster()
@@ -126,12 +149,27 @@ def cmd_terminate(args):
     jobid = find_cluster()
     emr_conn.terminate_jobflow(jobid)
 
-def upload_script(path):
+def transform_script(txt, bucket_name, work_path):
+    # extract and transform result paths
+    def rewrite_s3_path(match):
+        store_stmt, orig_bucket, orig_path = match.groups()
+        orig_path = orig_path.strip('/').replace('/', '_')
+        uri = 's3n://%s/%s/results/%s' % (bucket_name, work_path, orig_path)
+        return store_stmt + "'" + uri + "'"
+    txt = re.sub("(store\s+\w+\s+into\s+)'s3n?://([^/']+)([^']*)'",
+                 rewrite_s3_path, txt, flags=re.IGNORECASE)
+    return txt
+
+def upload_script(script_name, script_path):
     '''upload script to s3'''
+    bucket_name, work_path = gen_bucket_path(script_name)
     k = Key(s3_conn.get_bucket(bucket_name))
-    k.key = 'emrunner/' + path
-    k.set_contents_from_file(open(path))
-    script_uri = 's3://%s/emrunner/%s' % (bucket_name, path)
+    k.key = work_path + '/' + script_name
+    txt = open(script_path).read()
+    txt = transform_script(txt, bucket_name, work_path)
+    k.set_contents_from_string(txt)
+    print('results: s3://%s/%s/results/' % (bucket_name, work_path))
+    script_uri = 's3://%s/%s/%s' % (bucket_name, work_path, script_name)
     return script_uri
 
 def find_cluster(vacant=False):
@@ -142,10 +180,10 @@ def find_cluster(vacant=False):
         states += ['RUNNING']
     jobids = [c.id for c in emr_conn.list_clusters(
                   cluster_states=states).clusters
-              if c.name == default_cluster_name]
+              if c.name.startswith(os.environ['USER'] + '-')]
     if jobids:
         return jobids[0]
-    raise NotFoundError(default_cluster_name)
+    raise NotFoundError(os.environ['USER'])
 
 def find_step(jobid):
     '''find running step'''
@@ -203,6 +241,30 @@ def ssh(host, *args, **kwargs):
              '-o', 'StrictHostKeyChecking=no'] + \
         opts + ['hadoop@'+host] + list(args)
     os.execv('/usr/bin/ssh', args)
+
+def gen_bucket_path(script_name):
+    ts = dt.datetime.utcnow().isoformat() + 'Z'
+    match = re.match('^s3n?://(\w+)(/[\w/]*\w)?', work_uri)
+    if not match:
+        raise ValueError('invalid work_uri: %s' % work_uri)
+    bucket_name, path = match.groups()
+    if path is None:
+        path = ''
+    path = path.lstrip('/') + '/' + script_name + '/' + ts
+    return bucket_name, path
+
+def list_results(script_name):
+    bucket_name, work_path = gen_bucket_path(script_name)
+    prefix, junk = work_path.rsplit('/', 1)
+    bucket = s3_conn.get_bucket(bucket_name)
+    paths = [p.name for p in bucket.list(prefix = prefix + '/', delimiter='/')]
+    newest = max(paths)
+    print('found: s3://%s/%s' % (bucket_name, newest))
+    results_prefix = newest + 'results/'
+    keys = bucket.list(prefix = results_prefix)
+    res = dict((name, list(ks)) for name, ks in groupby(keys,
+                    lambda k: k.name.split(results_prefix)[-1].split('/')[0]))
+    return res
 
 class NotFoundError(BaseException):
     pass

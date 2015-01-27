@@ -1,5 +1,4 @@
-bucket_name = 'my-bucket'
-default_cluster_name = 'my-cluster'
+work_uri = 's3://my-bucket/emrpy/'
 ec2_keyname = 'my-key'
 log_uri = 's3://my-bucket/log/'
 ami_version = '3.3.1'
