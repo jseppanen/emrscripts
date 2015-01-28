@@ -31,6 +31,7 @@ from itertools import groupby
 # - terminate clusters
 # emr kill <pig-script>
 # - kill step
+# - hadoop job -kill job_1422359079597_0004
 
 # s3://bucket/emrpy/foobar.pig/2014-01-01T04:04:04.1234Z/foobar.pig
 # s3://bucket/emrpy/foobar.pig/2014-01-01T04:04:04.1234Z/results/...
@@ -101,7 +102,8 @@ def cmd_add(args):
         jobid = find_cluster(vacant=args.parallel)
     except NotFoundError:
         jobid = launch_cluster(args.script, keep_alive=True)
-    add_step(jobid, args.script, script_uri)
+    step_id = add_step(jobid, args.script, script_uri)
+    print('added %s' % step_id)
 
 def cmd_proxy(args):
     jobid = find_cluster()
@@ -115,8 +117,8 @@ def cmd_run(args):
         jobid = find_cluster(vacant=args.parallel)
     except NotFoundError:
         jobid = launch_cluster(args.script)
-    add_step(jobid, args.script, script_uri)
-    wait(jobid)
+    step_id = add_step(jobid, args.script, script_uri)
+    wait_step(jobid, step_id)
     # sync results back
     cmd_sync(args)
 
@@ -125,7 +127,7 @@ def cmd_ssh(args):
         jobid = find_cluster()
     except NotFoundError:
         jobid = launch_cluster('interactive', keep_alive=True)
-        wait(jobid)
+        wait_running(jobid)
     host = emr_conn.describe_jobflow(jobid).masterpublicdnsname
     ssh(host)
 
@@ -223,13 +225,24 @@ def add_step(jobid, script_name, script_uri):
             step_args=['/home/hadoop/pig/bin/pig', '-f', script_uri, '-l', '.'],
             action_on_failure='CONTINUE')
     ]
-    emr_conn.add_jobflow_steps(jobid, steps)
+    res = emr_conn.add_jobflow_steps(jobid, steps)
+    step_id = res.stepids[0].value
+    return step_id
 
-def wait(jobid):
-    status = 'asdf'
-    while status != 'TERMINATED' and status != 'WAITING':
-        status = emr_conn.describe_jobflow(jobid).state
-        sys.stdout.write('\r%s          ' % status)
+def wait_running(jobid):
+    state = 'asdf'
+    while state not in ('TERMINATED', 'WAITING'):
+        state = emr_conn.describe_jobflow(jobid).state
+        sys.stdout.write(' %s %s          \r' % (jobid, state))
+        sys.stdout.flush()
+        time.sleep(5)
+    sys.stdout.write('\n')
+
+def wait_step(jobid, step_id):
+    state = 'asdf'
+    while state not in ('COMPLETED', 'FAILED'):
+        state = emr_conn.describe_step(jobid, step_id).status.state
+        sys.stdout.write(' %s %s          \r' % (step_id, state))
         sys.stdout.flush()
         time.sleep(5)
     sys.stdout.write('\n')
