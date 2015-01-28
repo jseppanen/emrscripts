@@ -45,6 +45,7 @@ The available commands are:
    proxy      Launch SOCKS proxy connected to master
    run        Run step
    ssh        SSH to master (launch interactive if not running)
+   sync       Sync script results from S3 to local disk
    tail       Tail file from running step on master (default stderr)
    terminate  Terminate the running cluster''')
     subparsers = parser.add_subparsers(dest='command')
@@ -65,7 +66,7 @@ The available commands are:
     parser_ssh = subparsers.add_parser('ssh',
         description='SSH to master')
     parser_sync = subparsers.add_parser('sync',
-        description='Sync script results')
+        description='Sync script results from S3 to local disk')
     parser_sync.add_argument('script')
     parser_tail = subparsers.add_parser('tail',
         description='Tail file from running step on master (default stderr)')
