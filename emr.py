@@ -150,7 +150,12 @@ def cmd_tail(args):
 
 def cmd_terminate(args):
     jobid = find_cluster()
-    emr_conn.terminate_jobflow(jobid)
+    # "soft terminate" if cluster has unfinished steps
+    try:
+        find_step(jobid)
+        add_step(jobid, 'terminate', 'nosuchasdf', action_on_failure='TERMINATE_JOB_FLOW')
+    except NotFoundError:
+        emr_conn.terminate_jobflow(jobid)
 
 def transform_script(txt, bucket_name, work_path):
     # extract and transform result paths
@@ -190,12 +195,15 @@ def find_cluster(vacant=False):
 
 def find_step(jobid):
     '''find running step'''
-    steps = [s.id for s in emr_conn.list_steps(jobid).steps
-             if s.status.state == 'RUNNING']
-    if not steps:
-        raise NotFoundError('RUNNING')
-    assert len(steps) == 1
-    return steps[0]
+    steps = emr_conn.list_steps(jobid).steps
+    running = [s.id for s in steps if s.status.state == 'RUNNING']
+    if running:
+        assert len(running) == 1
+        return running[0]
+    pending = [s.id for s in steps if s.status.state == 'PENDING']
+    if pending:
+        return pending[0]
+    raise NotFoundError('No RUNNING or PENDING steps found')
 
 def launch_cluster(script_name, keep_alive=False):
     '''launch new cluster'''
@@ -220,11 +228,11 @@ def launch_cluster(script_name, keep_alive=False):
     print('launched %s (%s)' % (name, jobid))
     return jobid
 
-def add_step(jobid, script_name, script_uri):
+def add_step(jobid, script_name, script_uri, action_on_failure='CONTINUE'):
     steps = [
         ScriptRunnerStep(script_name,
             step_args=['/home/hadoop/pig/bin/pig', '-f', script_uri, '-l', '.'],
-            action_on_failure='CONTINUE')
+            action_on_failure=action_on_failure)
     ]
     res = emr_conn.add_jobflow_steps(jobid, steps)
     step_id = res.stepids[0].value
