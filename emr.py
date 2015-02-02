@@ -61,8 +61,12 @@ The available commands are:
         description='Run script')
     parser_run.add_argument('script')
     parser_run.add_argument('path', nargs='?')
+    parser_run.add_argument('-a', dest='keep_alive', action='store_true',
+        help='keep cluster alive')
     parser_run.add_argument('-p', dest='parallel', action='store_true',
         help='launch in parallel with currently running steps')
+    parser_run.add_argument('-t', dest='instance_types', default=None,
+        help='type (and number) of instances to launch (default m2.4xlarge:3)')
     parser_ssh = subparsers.add_parser('ssh',
         description='SSH to master')
     parser_sync = subparsers.add_parser('sync',
@@ -116,8 +120,11 @@ def cmd_run(args):
     script_uri = upload_script(script_name, args.script)
     try:
         jobid = find_cluster(vacant=args.parallel)
+        if args.instance_types is not None:
+            raise RuntimeError('cannot select instance types, cluster already running')
     except NotFoundError:
-        jobid = launch_cluster(args.script)
+        jobid = launch_cluster(args.script, keep_alive=args.keep_alive,
+                               instance_types=args.instance_types)
     step_id = add_step(jobid, args.script, script_uri)
     wait_step(jobid, step_id)
     # sync results back
@@ -205,11 +212,22 @@ def find_step(jobid):
         return pending[0]
     raise NotFoundError('No RUNNING or PENDING steps found')
 
-def launch_cluster(script_name, keep_alive=False):
+def launch_cluster(script_name, keep_alive=False, instance_types=None):
     '''launch new cluster'''
+    if instance_types is None:
+        instance_type = 'm2.4xlarge'
+        instance_count = 3
+    else:
+        match = re.match('^([^:]+)(:\d+)?$', instance_types)
+        if not match:
+            raise ValueError('invalid instance types: %s' % instance_types)
+        instance_type, instance_count = match.groups()
+        instance_count = int(instance_count[1:])
     instance_groups = [
-        InstanceGroup(1, 'MASTER', 'm2.4xlarge', 'ON_DEMAND', 'MASTER_GROUP'),
-        InstanceGroup(3, 'CORE', 'm2.4xlarge', 'ON_DEMAND', 'CORE_GROUP'),
+        InstanceGroup(
+            1, 'MASTER', instance_type, 'ON_DEMAND', 'MASTER_GROUP'),
+        InstanceGroup(
+            instance_count, 'CORE', instance_type, 'ON_DEMAND', 'CORE_GROUP')
     ]
     bootstrap_actions = [
         BootstrapAction('install-pig', install_pig_script, [pig_version]),
