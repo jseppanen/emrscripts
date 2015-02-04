@@ -126,9 +126,15 @@ def cmd_run(args):
         jobid = launch_cluster(args.script, keep_alive=args.keep_alive,
                                instance_types=args.instance_types)
     step_id = add_step(jobid, args.script, script_uri)
-    wait_step(jobid, step_id)
-    # sync results back
-    cmd_sync(args)
+    state = wait_step(jobid, step_id)
+    if state == 'COMPLETED':
+        # sync results back
+        cmd_sync(args)
+    else:
+        # print stderr
+        host = emr_conn.describe_jobflow(jobid).masterpublicdnsname
+        ssh(host, 'cat', '/mnt/var/log/hadoop/steps/%s/stderr' % step_id)
+        sys.exit(1)
 
 def cmd_ssh(args):
     try:
@@ -273,6 +279,7 @@ def wait_step(jobid, step_id):
         sys.stdout.flush()
         time.sleep(5)
     sys.stdout.write('\n')
+    return state
 
 def ssh(host, *args, **kwargs):
     opts = kwargs.pop('opts', [])
