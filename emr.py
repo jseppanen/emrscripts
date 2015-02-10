@@ -38,7 +38,7 @@ from itertools import groupby
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        usage='''emr <command> [ərgs]
+        usage='''emr <command> [args]
 
 The available commands are:
    add        Add a step
