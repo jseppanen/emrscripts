@@ -277,7 +277,7 @@ def wait_step(jobid, step_id):
         state = emr_conn.describe_step(jobid, step_id).status.state
         sys.stdout.write(' %s %s          \r' % (step_id, state))
         sys.stdout.flush()
-        time.sleep(5)
+        time.sleep(10)
     sys.stdout.write('\n')
     return state
 
