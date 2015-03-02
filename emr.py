@@ -69,6 +69,8 @@ The available commands are:
         help='type (and number) of instances to launch (default m2.4xlarge:3)')
     parser_ssh = subparsers.add_parser('ssh',
         description='SSH to master')
+    parser_ssh.add_argument('cluster', nargs='?', default=None,
+        help='Cluster name')
     parser_sync = subparsers.add_parser('sync',
         description='Sync script results from S3 to local disk')
     parser_sync.add_argument('script')
@@ -138,7 +140,7 @@ def cmd_run(args):
 
 def cmd_ssh(args):
     try:
-        jobid = find_cluster()
+        jobid = find_cluster(args.cluster)
     except NotFoundError:
         jobid = launch_cluster('interactive', keep_alive=True)
         wait_running(jobid)
@@ -193,18 +195,22 @@ def upload_script(script_name, script_path):
     script_uri = 's3://%s/%s/%s' % (bucket_name, work_path, script_name)
     return script_uri
 
-def find_cluster(vacant=False):
+def find_cluster(name=None, vacant=False):
     '''find previous cluster'''
     states = ['STARTING', 'BOOTSTRAPPING', 'WAITING']
     if not vacant:
         # launch sequentially
         states += ['RUNNING']
+    def match(c):
+        if name is not None:
+            return c.name == name
+        return c.name.startswith(os.environ['USER'] + '-')
     jobids = [c.id for c in emr_conn.list_clusters(
                   cluster_states=states).clusters
-              if c.name.startswith(os.environ['USER'] + '-')]
+              if match(c)]
     if jobids:
         return jobids[0]
-    raise NotFoundError(os.environ['USER'])
+    raise NotFoundError(name or os.environ['USER'])
 
 def find_step(jobid):
     '''find running step'''
