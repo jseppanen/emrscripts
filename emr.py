@@ -42,9 +42,10 @@ def parse_args():
 
 The available commands are:
    add        Add a step
+   launch     Launch new interactive cluster
    proxy      Launch SOCKS proxy connected to master
    run        Run step
-   ssh        SSH to master (launch interactive if not running)
+   ssh        SSH to master
    sync       Sync script results from S3 to local disk
    tail       Tail file from running step on master (default stderr)
    terminate  Terminate the running cluster''')
@@ -55,6 +56,10 @@ The available commands are:
     parser_add.add_argument('script')
     parser_add.add_argument('-p', dest='parallel', action='store_true',
         help='launch in parallel with currently running steps')
+    parser_launch = subparsers.add_parser('launch',
+        description='Launch interactive cluster')
+    parser_launch.add_argument('-t', dest='instance_types', default=None,
+        help='type (and number) of instances to launch (default m2.4xlarge:3)')
     parser_proxy = subparsers.add_parser('proxy',
         description='Launch SOCKS proxy connected to master')
     parser_run = subparsers.add_parser('run',
@@ -111,6 +116,10 @@ def cmd_add(args):
         jobid = launch_cluster(args.script, keep_alive=True)
     step_id = add_step(jobid, args.script, script_uri)
     print('added %s' % step_id)
+
+def cmd_launch(args):
+    launch_cluster('interactive', keep_alive=True,
+                   instance_types=args.instance_types)
 
 def cmd_proxy(args):
     jobid = find_cluster()
