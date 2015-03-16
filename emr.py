@@ -84,6 +84,8 @@ The available commands are:
     parser_tail.add_argument('filename', nargs='?', default='stderr')
     parser_terminate = subparsers.add_parser('terminate',
         description='Terminate clusters')
+    parser_terminate.add_argument('cluster', nargs='?', default=None,
+        help='Cluster name')
     return parser.parse_args()
 
 # upload script to s3
@@ -173,7 +175,7 @@ def cmd_tail(args):
     ssh(host, 'tail', '-f', '/mnt/var/log/hadoop/steps/%s/%s' % (step_id, args.filename))
 
 def cmd_terminate(args):
-    jobid = find_cluster()
+    jobid = find_cluster(args.cluster)
     # "soft terminate" if cluster has unfinished steps
     try:
         find_step(jobid)
