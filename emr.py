@@ -216,7 +216,7 @@ def find_cluster(name=None, vacant=False):
         states += ['RUNNING']
     def match(c):
         if name is not None:
-            return c.name == name
+            return c.name in (name, os.environ['USER'] + '-' + name)
         return c.name.startswith(os.environ['USER'] + '-')
     jobids = [c.id for c in emr_conn.list_clusters(
                   cluster_states=states).clusters
