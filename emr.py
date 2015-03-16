@@ -62,6 +62,8 @@ The available commands are:
         help='type (and number) of instances to launch (default m2.4xlarge:3)')
     parser_proxy = subparsers.add_parser('proxy',
         description='Launch SOCKS proxy connected to master')
+    parser_proxy.add_argument('cluster', nargs='?', default=None,
+        help='Cluster name')
     parser_run = subparsers.add_parser('run',
         description='Run script')
     parser_run.add_argument('script')
@@ -124,7 +126,7 @@ def cmd_launch(args):
                    instance_types=args.instance_types)
 
 def cmd_proxy(args):
-    jobid = find_cluster()
+    jobid = find_cluster(args.cluster)
     host = emr_conn.describe_jobflow(jobid).masterpublicdnsname
     ssh(host, opts=['-ND', '8157'])
 
