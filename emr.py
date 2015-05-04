@@ -283,7 +283,7 @@ def add_step(jobid, script_name, script_uri, action_on_failure='CONTINUE'):
 
 def wait_running(jobid):
     state = 'asdf'
-    while state not in ('TERMINATED', 'WAITING'):
+    while state not in ('TERMINATED', 'WAITING', 'CANCELLED'):
         state = emr_conn.describe_jobflow(jobid).state
         sys.stdout.write(' %s %s          \r' % (jobid, state))
         sys.stdout.flush()
