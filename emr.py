@@ -216,14 +216,14 @@ def find_cluster(name=None, vacant=False):
         states += ['RUNNING']
     def match(c):
         if name is not None:
-            return c.name in (name, os.environ['USER'] + '-' + name)
-        return c.name.startswith(os.environ['USER'] + '-')
+            return c.name in (name, name_prefix + '-' + name)
+        return c.name.startswith(name_prefix + '-')
     jobids = [c.id for c in emr_conn.list_clusters(
                   cluster_states=states).clusters
               if match(c)]
     if jobids:
         return jobids[0]
-    raise NotFoundError(name or os.environ['USER'])
+    raise NotFoundError(name or name_prefix)
 
 def find_step(jobid):
     '''find running step'''
@@ -257,7 +257,7 @@ def launch_cluster(script_name, keep_alive=False, instance_types=None):
     bootstrap_actions = [
         BootstrapAction('install-pig', install_pig_script, [pig_version]),
     ]
-    name=os.environ['USER'] + '-' + script_name
+    name = name_prefix + '-' + script_name
     jobid = emr_conn.run_jobflow(
         name=name,
         keep_alive=keep_alive,
