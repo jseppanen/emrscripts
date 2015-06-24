@@ -264,6 +264,8 @@ def launch_cluster(script_name, keep_alive=False, instance_types=None):
         ami_version=ami_version,
         visible_to_all_users=True,
         ec2_keyname=ec2_keyname,
+        service_role='EMR_DefaultRole',
+        job_flow_role='EMR_EC2_DefaultRole',
         log_uri=log_uri,
         action_on_failure='CONTINUE',
         instance_groups=instance_groups,
