@@ -178,11 +178,16 @@ def cmd_tail(args):
 
 def cmd_terminate(args):
     jobid = find_cluster(args.cluster)
-    # "soft terminate" if cluster has unfinished steps
     try:
         find_step(jobid)
-        add_step(jobid, 'terminate', 'nosuchasdf', action_on_failure='TERMINATE_JOB_FLOW')
+        # "soft terminate" if cluster has unfinished steps
+        emr_conn.add_jobflow_steps(jobid, [
+            ScriptRunnerStep('terminate',
+                step_args=['/bin/false'],
+                action_on_failure='TERMINATE_JOB_FLOW')
+        ])
     except NotFoundError:
+        # "hard terminate"
         emr_conn.terminate_jobflow(jobid)
 
 def transform_script(txt, bucket_name, work_path):
