@@ -60,6 +60,8 @@ The available commands are:
         description='Launch interactive cluster')
     parser_launch.add_argument('-t', dest='instance_types', default=None,
         help='type (and number) of instances to launch (default m2.4xlarge:3)')
+    parser_launch.add_argument('-s', dest='subnet_id', default=None,
+        help='give subnet id to assign cluster to a VPC (default none)')
     parser_proxy = subparsers.add_parser('proxy',
         description='Launch SOCKS proxy connected to master')
     parser_proxy.add_argument('cluster', nargs='?', default=None,
@@ -74,6 +76,8 @@ The available commands are:
         help='launch in parallel with currently running steps')
     parser_run.add_argument('-t', dest='instance_types', default=None,
         help='type (and number) of instances to launch (default m2.4xlarge:3)')
+    parser_run.add_argument('-s', dest='subnet_id', default=None,
+        help='give subnet id to assign cluster to a VPC (default none)')
     parser_ssh = subparsers.add_parser('ssh',
         description='SSH to master')
     parser_ssh.add_argument('cluster', nargs='?', default=None,
@@ -123,7 +127,8 @@ def cmd_add(args):
 
 def cmd_launch(args):
     launch_cluster('interactive', keep_alive=True,
-                   instance_types=args.instance_types)
+                   instance_types=args.instance_types,
+                   subnet_id=args.subnet_id)
 
 def cmd_proxy(args):
     jobid = find_cluster(args.cluster)
@@ -139,7 +144,8 @@ def cmd_run(args):
             raise RuntimeError('cannot select instance types, cluster already running')
     except NotFoundError:
         jobid = launch_cluster(args.script, keep_alive=args.keep_alive,
-                               instance_types=args.instance_types)
+                               instance_types=args.instance_types,
+                               subnet_id=args.subnet_id)
     step_id = add_step(jobid, args.script, script_uri)
     state = wait_step(jobid, step_id)
     if state == 'COMPLETED':
@@ -242,7 +248,8 @@ def find_step(jobid):
         return pending[0]
     raise NotFoundError('No RUNNING or PENDING steps found')
 
-def launch_cluster(script_name, keep_alive=False, instance_types=None):
+def launch_cluster(script_name, keep_alive=False, instance_types=None,
+                   subnet_id=None):
     '''launch new cluster'''
     if instance_types is None:
         instance_type = 'm2.4xlarge'
@@ -262,6 +269,9 @@ def launch_cluster(script_name, keep_alive=False, instance_types=None):
     bootstrap_actions = [
         BootstrapAction('install-pig', install_pig_script, [pig_version]),
     ]
+    api_params = {}
+    if subnet_id is not None:
+        api_params['Instances.Ec2SubnetId'] = subnet_id
     name = name_prefix + '-' + script_name
     jobid = emr_conn.run_jobflow(
         name=name,
@@ -274,7 +284,8 @@ def launch_cluster(script_name, keep_alive=False, instance_types=None):
         log_uri=log_uri,
         action_on_failure='CONTINUE',
         instance_groups=instance_groups,
-        bootstrap_actions=bootstrap_actions)
+        bootstrap_actions=bootstrap_actions,
+        api_params=api_params)
     print('launched %s (%s)' % (name, jobid))
     return jobid
 
